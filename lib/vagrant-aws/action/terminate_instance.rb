@@ -17,14 +17,19 @@ module VagrantPlugins
           # Destroy the server and remove the tracking ID
           env[:ui].info(I18n.t("vagrant_aws.terminating"))
           server.destroy
+          elastic_ip = env[:aws_compute].describe_addresses('public-ip' => server.public_ip_address)
+          if !elastic_ip[:body]["addressesSet"].empty?
+            env[:aws_compute].disassociate_address(nil,elastic_ip[:body]["addressesSet"][0]["associationId"]) if !elastic_ip[:body]["addressesSet"].empty?
+            env[:ui].info(I18n.t("vagrant_aws.elastic_ip_deallocated"))
+          end
           env[:machine].id = nil
 
           # Release the elastic IP
-          ip_file = env[:machine].data_dir.join('elastic_ip')
-          if ip_file.file?
-            release_address(env,ip_file.read)
-            ip_file.delete
-          end
+          #ip_file = env[:machine].data_dir.join('elastic_ip')
+          #if ip_file.file?
+          #  release_address(env,ip_file.read)
+          #  ip_file.delete
+          #end
 
           @app.call(env)
         end

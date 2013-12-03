@@ -41,9 +41,14 @@ module VagrantPlugins
 
       # Acquire and attach an elastic IP address (VPC).
       #
-      # @return [Boolean]
+      # @return [String]
       attr_accessor :elastic_ip
 
+      # Allocate Elastic IP 
+      # 
+      # @return [String]
+      attr_accessor :allocate_elastic_ip
+      
       # The name of the AWS region in which to create the instance.
       #
       # @return [String]
@@ -152,6 +157,7 @@ module VagrantPlugins
         @use_iam_profile        = UNSET_VALUE
         @block_device_mapping   = []
         @elastic_ip             = UNSET_VALUE
+        @allocate_elastic_ip    = UNSET_VALUE
         @iam_instance_profile_arn  = UNSET_VALUE
         @iam_instance_profile_name = UNSET_VALUE
         @terminate_on_shutdown  = UNSET_VALUE
@@ -258,8 +264,11 @@ module VagrantPlugins
         # Default the private IP to nil since VPC is not default
         @private_ip_address = nil if @private_ip_address == UNSET_VALUE
 
-        # Acquire an elastic IP if requested
+        # Acquire an elastic IP if requested ; This is the case where eip has to be explicitly allocated
         @elastic_ip = nil if @elastic_ip == UNSET_VALUE
+
+        # Allocate Elastic ip is nil by default
+        @allocate_elastic_ip = nil if @allocate_elastic_ip == UNSET_VALUE
 
         # Default region is us-east-1. This is sensible because AWS
         # generally defaults to this as well.

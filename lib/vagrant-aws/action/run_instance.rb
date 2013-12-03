@@ -10,11 +10,27 @@ module VagrantPlugins
     module Action
       # This runs the configured instance.
       class RunInstance
+        @@instances = 0
+        LIMIT = 10
+        
+        def self.update_instances
+          @@instances = @@instances + 1
+        end
+
+        def self.instances
+          @@instances
+        end
+
         include Vagrant::Util::Retryable
 
         def initialize(app, env)
+          RunInstance.update_instances
           @app    = app
+          @instance_no = RunInstance.instances
+          @iteration = 1
           @logger = Log4r::Logger.new("vagrant_aws::action::run_instance")
+          @logger.info("---------------------- No of instances - #{RunInstance.instances}---------------")
+          control_vm_creation
         end
 
         def call(env)
@@ -37,6 +53,7 @@ module VagrantPlugins
           user_data             = region_config.user_data
           block_device_mapping  = region_config.block_device_mapping
           elastic_ip            = region_config.elastic_ip
+          allocate_elastic_ip   = region_config.allocate_elastic_ip
           terminate_on_shutdown = region_config.terminate_on_shutdown
           iam_instance_profile_arn  = region_config.iam_instance_profile_arn
           iam_instance_profile_name = region_config.iam_instance_profile_name
@@ -49,7 +66,7 @@ module VagrantPlugins
           end
 
           # If there is a subnet ID then warn the user
-          if subnet_id && !elastic_ip
+          if subnet_id and not elastic_ip and not allocate_elastic_ip
             env[:ui].warn(I18n.t("vagrant_aws.launch_vpc_warning"))
           end
 
@@ -64,7 +81,8 @@ module VagrantPlugins
           env[:ui].info(" -- IAM Instance Profile ARN: #{iam_instance_profile_arn}") if iam_instance_profile_arn
           env[:ui].info(" -- IAM Instance Profile Name: #{iam_instance_profile_name}") if iam_instance_profile_name
           env[:ui].info(" -- Private IP: #{private_ip_address}") if private_ip_address
-          env[:ui].info(" -- Elastic IP: #{elastic_ip}") if elastic_ip
+          env[:ui].info(" -- Elastic IP: #{elastic_ip.inspect}") if elastic_ip
+          env[:ui].info(" -- Allocate Elastic IP: #{allocate_elastic_ip.inspect}") if allocate_elastic_ip 
           env[:ui].info(" -- User Data: yes") if user_data
           env[:ui].info(" -- Security Groups: #{security_groups.inspect}") if !security_groups.empty?
           env[:ui].info(" -- User Data: #{user_data}") if user_data
@@ -84,6 +102,8 @@ module VagrantPlugins
             :iam_instance_profile_name => iam_instance_profile_name,
             :tags                      => tags,
             :user_data                 => user_data,
+            :elastic_ip                => elastic_ip,
+            :allocate_elastic_ip       => allocate_elastic_ip,
             :block_device_mapping      => block_device_mapping,
             :instance_initiated_shutdown_behavior => terminate_on_shutdown == true ? "terminate" : nil,
             :monitoring                => monitoring,
@@ -144,9 +164,14 @@ module VagrantPlugins
           @logger.info("Time to instance ready: #{env[:metrics]["instance_ready_time"]}")
 
           # Allocate and associate an elastic IP if requested
+          #if elastic_ip
+          #  domain = subnet_id ? 'vpc' : 'standard'
+          #  do_elastic_ip(env, domain, server)
+          #end
           if elastic_ip
-            domain = subnet_id ? 'vpc' : 'standard'
-            do_elastic_ip(env, domain, server)
+            associate_elastic_ip(env,elastic_ip)
+          elsif allocate_elastic_ip
+            allocate_and_associate_elastic_ip(env,allocate_elastic_ip)
           end
 
           if !env[:interrupted]
@@ -237,6 +262,53 @@ module VagrantPlugins
           destroy_env[:config_validate] = false
           destroy_env[:force_confirm_destroy] = true
           env[:action_runner].run(Action.action_destroy, destroy_env)
+        end
+
+        def associate_elastic_ip(env,elastic_ip)
+          begin
+            eip = env[:aws_compute].addresses.get(elastic_ip)
+            if eip.nil?
+              terminate(env)
+              raise Errors::FogError,
+                :message => "Elastic IP specified not found: #{elastic_ip}"
+            end
+            @logger.info("eip - #{eip}")
+            env[:aws_compute].associate_address(env[:machine].id,nil,nil,eip.allocation_id)
+            env[:ui].info(I18n.t("vagrant_aws.elastic_ip_allocated"))
+          rescue Fog::Compute::AWS::NotFound => e
+          # Invalid elasticip doesn't have its own error so we catch and
+          # check the error message here.
+            if e.message =~ /Elastic IP/
+              terminate(env)
+              raise Errors::FogError,
+                :message => "Elastic IP not found: #{elastic_ip}"
+            end
+            raise
+          end
+        end
+
+        def allocate_and_associate_elastic_ip(env,allocate_elastic_ip)
+          begin
+            allocated_eip = env[:aws_compute].allocate_address(allocate_elastic_ip)
+            associate_elastic_ip(env,allocated_eip[:body]["publicIp"])
+          rescue Fog::Compute::AWS::NotFound => e
+            # Invalid computation of elasticip doesn't have its own error so we catch and
+            # check the error message here.
+            if e.message =~ /Elastic IP/
+              terminate(env)
+              raise Errors::FogError,
+                :message => "Elastic IP not allocated with allocate_elastic_ip option: #{allocate_elastic_ip}"
+            end
+            raise
+          end
+        end
+
+        def control_vm_creation
+          while @instance_no > (LIMIT * @iteration) do
+            @iteration = @iteration + 1
+            @logger.info("----------------instance_no - #{@instance_no} will wait-----------------")
+            sleep 30
+          end
         end
       end
     end
