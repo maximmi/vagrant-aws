@@ -267,6 +267,7 @@ module VagrantPlugins
 
         def associate_elastic_ip(env,elastic_ip, domain)
           begin
+            env[:aws_ip] = elastic_ip
             eip = env[:aws_compute].addresses.get(elastic_ip)
             if eip.nil?
               terminate(env)

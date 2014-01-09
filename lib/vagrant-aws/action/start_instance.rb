@@ -29,7 +29,9 @@ module VagrantPlugins
 
             region = env[:machine].provider_config.region
             region_config = env[:machine].provider_config.get_region_config(region)
-
+            subnet_id = region_config.subnet_id
+            elastic_ip = region_config.elastic_ip
+            allocate_elastic_ip = region_config.allocate_elastic_ip
             # Wait for the instance to be ready first
             env[:metrics]["instance_ready_time"] = Util::Timer.time do
               tries = region_config.instance_ready_timeout / 2
@@ -55,6 +57,12 @@ module VagrantPlugins
 
           @logger.info("Time to instance ready: #{env[:metrics]["instance_ready_time"]}")
 
+          # Allocate and associate an elastic IP if requested
+          if elastic_ip or allocate_elastic_ip
+            domain = subnet_id ? 'vpc' : 'standard'  
+            associate_elastic_ip(env, elastic_ip, domain) 
+          end
+
           if !env[:interrupted]
             env[:metrics]["instance_ssh_time"] = Util::Timer.time do
               # Wait for SSH to be ready.
@@ -75,6 +83,34 @@ module VagrantPlugins
 
           @app.call(env)
         end
+
+        def associate_elastic_ip(env,elastic_ip, domain)
+          begin
+            #env[:machine].aws_ip = elastic_ip
+            eip = env[:aws_compute].addresses.get(elastic_ip)
+            if eip.nil?
+              terminate(env)
+              raise Errors::FogError,
+                :message => "Elastic IP specified not found: #{elastic_ip}"
+            end
+            @logger.info("eip - #{eip.to_s}")
+                        if domain == 'vpc'
+                                env[:aws_compute].associate_address(env[:machine].id,nil,nil,eip.allocation_id)
+                        else
+                                env[:aws_compute].associate_address(env[:machine].id,elastic_ip)
+                        end
+            env[:ui].info(I18n.t("vagrant_aws.elastic_ip_allocated"))
+          rescue Fog::Compute::AWS::NotFound => e
+          # Invalid elasticip doesn't have its own error so we catch and
+          # check the error message here.
+            if e.message =~ /Elastic IP/
+              terminate(env)
+          raise Errors::FogError,
+            :message => "Elastic IP not found: #{elastic_ip}"
+          end
+          raise
+          end
+        end        
       end
     end
   end
