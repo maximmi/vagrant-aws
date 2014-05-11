@@ -103,6 +103,11 @@ module VagrantPlugins
       # @return [Boolean]
       attr_accessor :use_iam_profile
 
+      # Enables monitoring for the instance.
+      #
+      # @return [Boolean]
+      attr_accessor :monitoring
+
       # The user data string
       #
       # @return [String]
@@ -128,15 +133,25 @@ module VagrantPlugins
       # @return [Symbol]
       attr_accessor :ssh_host_attribute
 
-      # Enables Monitoring
-      #
-      # @return [Boolean]
-      attr_accessor :monitoring
-
       # EBS optimized instance
       #
       # @return [Boolean]
       attr_accessor :ebs_optimized
+
+      # Launch as spot instance
+      #
+      # @return [Boolean]
+      attr_accessor :spot_instance
+
+      # Spot request max price
+      #
+      # @return [String]
+      attr_accessor :spot_max_price
+
+      # Spot request validity
+      #
+      # @return [Time]
+      attr_accessor :spot_valid_until
 
       def initialize(region_specific=false)
         @access_key_id          = UNSET_VALUE
@@ -164,6 +179,9 @@ module VagrantPlugins
         @ssh_host_attribute     = UNSET_VALUE
         @monitoring             = UNSET_VALUE
         @ebs_optimized          = UNSET_VALUE
+        @spot_instance          = UNSET_VALUE
+        @spot_max_price         = UNSET_VALUE
+        @spot_valid_until       = UNSET_VALUE
 
         # Internal state (prefix with __ so they aren't automatically
         # merged)
@@ -290,6 +308,9 @@ module VagrantPlugins
         # By default we don't use an IAM profile
         @use_iam_profile = false if @use_iam_profile == UNSET_VALUE
 
+        # No monitoring by default
+        @monitoring = false if @monitoring == UNSET_VALUE
+
         # User Data is nil by default
         @user_data = nil if @user_data == UNSET_VALUE
 
@@ -300,10 +321,16 @@ module VagrantPlugins
         @ssh_host_attribute = nil if @ssh_host_attribute == UNSET_VALUE
 
         # default false
-        @monitoring = false if @monitoring == UNSET_VALUE
-
-        # default false
         @ebs_optimized = false if @ebs_optimized == UNSET_VALUE
+
+        # By default don't use spot requests
+        @spot_instance = false if @spot_instance == UNSET_VALUE
+
+        # Required, no default
+        @spot_max_price = nil if @spot_max_price == UNSET_VALUE
+
+        # Default: Request is effective indefinitely.
+        @spot_valid_until = nil if @spot_valid_until == UNSET_VALUE
 
         # Compile our region specific configurations only within
         # NON-REGION-SPECIFIC configurations.
@@ -348,6 +375,8 @@ module VagrantPlugins
           end
 
           errors << I18n.t("vagrant_aws.config.ami_required") if config.ami.nil?
+
+          errors << I18n.t("vagrant_aws.config.spot_price_required") if config.spot_instance && config.spot_max_price.nil?
         end
 
         { "AWS Provider" => errors }
