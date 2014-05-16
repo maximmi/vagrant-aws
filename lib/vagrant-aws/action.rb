@@ -115,11 +115,7 @@ module VagrantPlugins
 
       def self.action_prepare_boot
         Vagrant::Action::Builder.new.tap do |b|
-<<<<<<< HEAD
-          b.use Provision
-=======
           b.use TimedProvision
->>>>>>> spot-2
           b.use SyncFolders
           b.use WarnNetworks
         end
