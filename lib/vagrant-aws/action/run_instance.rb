@@ -341,15 +341,15 @@ module VagrantPlugins
                 :message => "Elastic IP specified not found: #{elastic_ip}"
             end
             @logger.info("eip - #{eip.to_s}")
-			if domain == 'vpc'
-				env[:aws_compute].associate_address(env[:machine].id,nil,nil,eip.allocation_id)
-			else
-				env[:aws_compute].associate_address(env[:machine].id,elastic_ip)
-			end
+			      if domain == 'vpc'
+				      env[:aws_compute].associate_address(env[:machine].id,nil,nil,eip.allocation_id)
+			      else
+				      env[:aws_compute].associate_address(env[:machine].id,elastic_ip)
+			      end
             env[:ui].info(I18n.t("vagrant_aws.elastic_ip_allocated"))
           rescue Fog::Compute::AWS::NotFound => e
-          # Invalid elasticip doesn't have its own error so we catch and
-          # check the error message here.
+            # Invalid elasticip doesn't have its own error so we catch and
+            # check the error message here.
             if e.message =~ /Elastic IP/
               terminate(env)
               raise Errors::FogError,
@@ -385,4 +385,5 @@ module VagrantPlugins
       end
     end
   end
+end
 end
