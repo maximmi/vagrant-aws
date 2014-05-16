@@ -146,241 +146,241 @@ module VagrantPlugins
             end
             @app.call(env)
           end
+        end
 
-          def wait_server_ready(env, config, server)
-            env[:metrics]["instance_ready_time"] = Util::Timer.time do
-              tries = config.instance_ready_timeout / 2
-              env[:ui].info(I18n.t("vagrant_aws.waiting_for_ready"))
-              begin
-                retryable(:on => Fog::Errors::TimeoutError, :tries => tries) do
-                  # If we're interrupted don't worry about waiting
-                  next if env[:interrupted]
-                  # Wait for the server to be ready
-                  server.wait_for(2) { ready? }
-                end
-              rescue Fog::Errors::TimeoutError
-                # Delete the instance
-                terminate(env)
-                # Notify the user
-                raise Errors::InstanceReadyTimeout, timeout: config.instance_ready_timeout
-              end
-            end
-            @logger.info("Time to instance ready: #{env[:metrics]["instance_ready_time"]}")
-
-            # Allocate and associate an elastic IP if requested
-            #if elastic_ip
-            #  domain = subnet_id ? 'vpc' : 'standard'
-            #  do_elastic_ip(env, domain, server)
-            #end
-            if elastic_ip
-              domain = subnet_id ? 'vpc' : 'standard'
-              associate_elastic_ip(env,elastic_ip, domain)
-            elsif allocate_elastic_ip
-              allocate_and_associate_elastic_ip(env,allocate_elastic_ip)
-            end
-
-            if !env[:interrupted]
-              env[:metrics]["instance_ssh_time"] = Util::Timer.time do
-                # Wait for SSH to be ready.
-                env[:ui].info(I18n.t("vagrant_aws.waiting_for_ssh"))
-                while true
-                  # If we're interrupted then just back out
-                  break if env[:interrupted]
-                  break if env[:machine].communicate.ready?
-                  sleep 2
-                end
-              end
-              @logger.info("Time for SSH ready: #{env[:metrics]["instance_ssh_time"]}")
-              # Ready and booted!
-              env[:ui].info(I18n.t("vagrant_aws.ready"))
-            end
-
-            # Terminate the instance if we were interrupted
-            terminate(env) if env[:interrupted]
-          end
-
-          # returns a fog server or nil
-          def server_from_spot_request(env, config)
-            # prepare request args
-            options = {
-              'InstanceCount'                                  => 1,
-              'LaunchSpecification.KeyName'                    => config.keypair_name,
-              'LaunchSpecification.Monitoring.Enabled'         => config.monitoring,
-              'LaunchSpecification.Placement.AvailabilityZone' => config.availability_zone,
-              # 'LaunchSpecification.EbsOptimized'               => config.ebs_optimized,
-              'LaunchSpecification.UserData'                   => config.user_data,
-              'LaunchSpecification.SubnetId'                   => config.subnet_id,
-              'ValidUntil'                                     => config.spot_valid_until
-            }
-            security_group_key = config.subnet_id.nil? ? 'LaunchSpecification.SecurityGroup' : 'LaunchSpecification.SecurityGroupId'
-            options[security_group_key] = config.security_groups
-            options.delete_if { |key, value| value.nil? }
-
-            env[:ui].info(I18n.t("vagrant_aws.launching_spot_instance"))
-            env[:ui].info(" -- Price: #{config.spot_max_price}")
-            env[:ui].info(" -- Valid until: #{config.spot_valid_until}") if config.spot_valid_until
-            env[:ui].info(" -- Monitoring: #{config.monitoring}") if config.monitoring
-
-            # create the spot instance
-            spot_req = env[:aws_compute].request_spot_instances(
-              config.ami,
-              config.instance_type,
-              config.spot_max_price,
-              options).body["spotInstanceRequestSet"].first
-
-            spot_request_id = spot_req["spotInstanceRequestId"]
-            @logger.info("Spot request ID: #{spot_request_id}")
-            env[:ui].info("Status: #{spot_req["fault"]["message"]}")
-            status_code = spot_req["fault"]["code"] # fog uses "fault" instead of "status"
-            while true
-              sleep 5 # TODO make it a param
-              break if env[:interrupted]
-              spot_req = env[:aws_compute].describe_spot_instance_requests(
-                'spot-instance-request-id' => [spot_request_id]).body["spotInstanceRequestSet"].first
-
-              # waiting for spot request ready
-              next unless spot_req
-
-              # display something whenever the status code changes
-              if status_code != spot_req["fault"]["code"]
-                env[:ui].info("Status: #{spot_req["fault"]["message"]}")
-                status_code = spot_req["fault"]["code"]
-              end
-              spot_state = spot_req["state"].to_sym
-              case spot_state
-              when :not_created, :open
-                @logger.debug("Spot request #{spot_state} #{status_code}, waiting")
-              when :active
-                break; # :)
-              when :closed, :cancelled, :failed
-                @logger.error("Spot request #{spot_state} #{status_code}, aborting")
-                break; # :(
-              else
-                @logger.debug("Unknown spot state #{spot_state} #{status_code}, waiting")
-              end
-            end
-            # cancel the spot request but let the server go thru
-            env[:aws_compute].cancel_spot_instance_requests(spot_request_id)
-            # tries to return a server
-            spot_req["instanceId"] ? env[:aws_compute].servers.get(spot_req["instanceId"]) : nil
-          end
-
-          def recover(env)
-            return if env["vagrant.error"].is_a?(Vagrant::Errors::VagrantError)
-
-            if env[:machine].provider.state.id != :not_created
-              # Undo the import
-              terminate(env)
-            end
-          end
-
-          def allows_ssh_port?(env, test_sec_groups, is_vpc)
-            port = 22 # TODO get ssh_info port
-            test_sec_groups = [ "default" ] if test_sec_groups.empty? # AWS default security group
-            # filter groups by name or group_id (vpc)
-            groups = test_sec_groups.map do |tsg|
-              env[:aws_compute].security_groups.all.select { |sg| tsg == (is_vpc ? sg.group_id : sg.name) }
-            end.flatten
-            # filter TCP rules
-            rules = groups.map { |sg| sg.ip_permissions.select { |r| r["ipProtocol"] == "tcp" } }.flatten
-            # test if any range includes port
-            !rules.select { |r| (r["fromPort"]..r["toPort"]).include?(port) }.empty?
-          end
-
-          def do_elastic_ip(env, domain, server)
+        def wait_server_ready(env, config, server)
+          env[:metrics]["instance_ready_time"] = Util::Timer.time do
+            tries = config.instance_ready_timeout / 2
+            env[:ui].info(I18n.t("vagrant_aws.waiting_for_ready"))
             begin
-              allocation = env[:aws_compute].allocate_address(domain)
-            rescue
-              @logger.debug("Could not allocate Elastic IP.")
+              retryable(:on => Fog::Errors::TimeoutError, :tries => tries) do
+                # If we're interrupted don't worry about waiting
+                next if env[:interrupted]
+                # Wait for the server to be ready
+                server.wait_for(2) { ready? }
+              end
+            rescue Fog::Errors::TimeoutError
+              # Delete the instance
               terminate(env)
-              raise Errors::FogError,
-                :message => "Could not allocate Elastic IP."
+              # Notify the user
+              raise Errors::InstanceReadyTimeout, timeout: config.instance_ready_timeout
             end
-            @logger.debug("Public IP #{allocation.body['publicIp']}")
+          end
+          @logger.info("Time to instance ready: #{env[:metrics]["instance_ready_time"]}")
 
-            # Associate the address and save the metadata to a hash
-            if domain == 'vpc'
-              # VPC requires an allocation ID to assign an IP
-              association = env[:aws_compute].associate_address(server.id, nil, nil, allocation.body['allocationId'])
-              h = { :allocation_id => allocation.body['allocationId'], :association_id => association.body['associationId'], :public_ip => allocation.body['publicIp'] }
+          # Allocate and associate an elastic IP if requested
+          #if elastic_ip
+          #  domain = subnet_id ? 'vpc' : 'standard'
+          #  do_elastic_ip(env, domain, server)
+          #end
+          if elastic_ip
+            domain = subnet_id ? 'vpc' : 'standard'
+            associate_elastic_ip(env,elastic_ip, domain)
+          elsif allocate_elastic_ip
+            allocate_and_associate_elastic_ip(env,allocate_elastic_ip)
+          end
+
+          if !env[:interrupted]
+            env[:metrics]["instance_ssh_time"] = Util::Timer.time do
+              # Wait for SSH to be ready.
+              env[:ui].info(I18n.t("vagrant_aws.waiting_for_ssh"))
+              while true
+                # If we're interrupted then just back out
+                break if env[:interrupted]
+                break if env[:machine].communicate.ready?
+                sleep 2
+              end
+            end
+            @logger.info("Time for SSH ready: #{env[:metrics]["instance_ssh_time"]}")
+            # Ready and booted!
+            env[:ui].info(I18n.t("vagrant_aws.ready"))
+          end
+
+          # Terminate the instance if we were interrupted
+          terminate(env) if env[:interrupted]
+        end
+
+        # returns a fog server or nil
+        def server_from_spot_request(env, config)
+          # prepare request args
+          options = {
+            'InstanceCount'                                  => 1,
+            'LaunchSpecification.KeyName'                    => config.keypair_name,
+            'LaunchSpecification.Monitoring.Enabled'         => config.monitoring,
+            'LaunchSpecification.Placement.AvailabilityZone' => config.availability_zone,
+            # 'LaunchSpecification.EbsOptimized'               => config.ebs_optimized,
+            'LaunchSpecification.UserData'                   => config.user_data,
+            'LaunchSpecification.SubnetId'                   => config.subnet_id,
+            'ValidUntil'                                     => config.spot_valid_until
+          }
+          security_group_key = config.subnet_id.nil? ? 'LaunchSpecification.SecurityGroup' : 'LaunchSpecification.SecurityGroupId'
+          options[security_group_key] = config.security_groups
+          options.delete_if { |key, value| value.nil? }
+
+          env[:ui].info(I18n.t("vagrant_aws.launching_spot_instance"))
+          env[:ui].info(" -- Price: #{config.spot_max_price}")
+          env[:ui].info(" -- Valid until: #{config.spot_valid_until}") if config.spot_valid_until
+          env[:ui].info(" -- Monitoring: #{config.monitoring}") if config.monitoring
+
+          # create the spot instance
+          spot_req = env[:aws_compute].request_spot_instances(
+            config.ami,
+            config.instance_type,
+            config.spot_max_price,
+            options).body["spotInstanceRequestSet"].first
+
+          spot_request_id = spot_req["spotInstanceRequestId"]
+          @logger.info("Spot request ID: #{spot_request_id}")
+          env[:ui].info("Status: #{spot_req["fault"]["message"]}")
+          status_code = spot_req["fault"]["code"] # fog uses "fault" instead of "status"
+          while true
+            sleep 5 # TODO make it a param
+            break if env[:interrupted]
+            spot_req = env[:aws_compute].describe_spot_instance_requests(
+              'spot-instance-request-id' => [spot_request_id]).body["spotInstanceRequestSet"].first
+
+            # waiting for spot request ready
+            next unless spot_req
+
+            # display something whenever the status code changes
+            if status_code != spot_req["fault"]["code"]
+              env[:ui].info("Status: #{spot_req["fault"]["message"]}")
+              status_code = spot_req["fault"]["code"]
+            end
+            spot_state = spot_req["state"].to_sym
+            case spot_state
+            when :not_created, :open
+              @logger.debug("Spot request #{spot_state} #{status_code}, waiting")
+            when :active
+              break; # :)
+            when :closed, :cancelled, :failed
+              @logger.error("Spot request #{spot_state} #{status_code}, aborting")
+              break; # :(
             else
-              # Standard EC2 instances only need the allocated IP address
-              association = env[:aws_compute].associate_address(server.id, allocation.body['publicIp'])
-              h = { :public_ip => allocation.body['publicIp'] }
+              @logger.debug("Unknown spot state #{spot_state} #{status_code}, waiting")
             end
+          end
+          # cancel the spot request but let the server go thru
+          env[:aws_compute].cancel_spot_instance_requests(spot_request_id)
+          # tries to return a server
+          spot_req["instanceId"] ? env[:aws_compute].servers.get(spot_req["instanceId"]) : nil
+        end
 
-            unless association.body['return']
-              @logger.debug("Could not associate Elastic IP.")
+        def recover(env)
+          return if env["vagrant.error"].is_a?(Vagrant::Errors::VagrantError)
+
+          if env[:machine].provider.state.id != :not_created
+            # Undo the import
+            terminate(env)
+          end
+        end
+
+        def allows_ssh_port?(env, test_sec_groups, is_vpc)
+          port = 22 # TODO get ssh_info port
+          test_sec_groups = [ "default" ] if test_sec_groups.empty? # AWS default security group
+          # filter groups by name or group_id (vpc)
+          groups = test_sec_groups.map do |tsg|
+            env[:aws_compute].security_groups.all.select { |sg| tsg == (is_vpc ? sg.group_id : sg.name) }
+          end.flatten
+          # filter TCP rules
+          rules = groups.map { |sg| sg.ip_permissions.select { |r| r["ipProtocol"] == "tcp" } }.flatten
+          # test if any range includes port
+          !rules.select { |r| (r["fromPort"]..r["toPort"]).include?(port) }.empty?
+        end
+
+        def do_elastic_ip(env, domain, server)
+          begin
+            allocation = env[:aws_compute].allocate_address(domain)
+          rescue
+            @logger.debug("Could not allocate Elastic IP.")
+            terminate(env)
+            raise Errors::FogError,
+              :message => "Could not allocate Elastic IP."
+          end
+          @logger.debug("Public IP #{allocation.body['publicIp']}")
+
+          # Associate the address and save the metadata to a hash
+          if domain == 'vpc'
+            # VPC requires an allocation ID to assign an IP
+            association = env[:aws_compute].associate_address(server.id, nil, nil, allocation.body['allocationId'])
+            h = { :allocation_id => allocation.body['allocationId'], :association_id => association.body['associationId'], :public_ip => allocation.body['publicIp'] }
+          else
+            # Standard EC2 instances only need the allocated IP address
+            association = env[:aws_compute].associate_address(server.id, allocation.body['publicIp'])
+            h = { :public_ip => allocation.body['publicIp'] }
+          end
+
+          unless association.body['return']
+            @logger.debug("Could not associate Elastic IP.")
+            terminate(env)
+            raise Errors::FogError,
+              :message => "Could not allocate Elastic IP."
+          end
+
+          # Save this IP to the data dir so it can be released when the instance is destroyed
+          ip_file = env[:machine].data_dir.join('elastic_ip')
+          ip_file.open('w+') do |f|
+            f.write(h.to_json)
+          end
+        end
+
+        def terminate(env)
+          destroy_env = env.dup
+          destroy_env.delete(:interrupted)
+          destroy_env[:config_validate] = false
+          destroy_env[:force_confirm_destroy] = true
+          env[:action_runner].run(Action.action_destroy, destroy_env)
+        end
+
+        def associate_elastic_ip(env,elastic_ip, domain)
+          begin
+            env[:aws_ip] = elastic_ip
+            eip = env[:aws_compute].addresses.get(elastic_ip)
+            if eip.nil?
               terminate(env)
               raise Errors::FogError,
-                :message => "Could not allocate Elastic IP."
+                :message => "Elastic IP specified not found: #{elastic_ip}"
             end
-
-            # Save this IP to the data dir so it can be released when the instance is destroyed
-            ip_file = env[:machine].data_dir.join('elastic_ip')
-            ip_file.open('w+') do |f|
-              f.write(h.to_json)
+            @logger.info("eip - #{eip.to_s}")
+            if domain == 'vpc'
+              env[:aws_compute].associate_address(env[:machine].id,nil,nil,eip.allocation_id)
+            else
+              env[:aws_compute].associate_address(env[:machine].id,elastic_ip)
             end
+            env[:ui].info(I18n.t("vagrant_aws.elastic_ip_allocated"))
+          rescue Fog::Compute::AWS::NotFound => e
+            # Invalid elasticip doesn't have its own error so we catch and
+            # check the error message here.
+            if e.message =~ /Elastic IP/
+              terminate(env)
+              raise Errors::FogError,
+                :message => "Elastic IP not found: #{elastic_ip}"
+            end
+            raise
           end
+        end
 
-          def terminate(env)
-            destroy_env = env.dup
-            destroy_env.delete(:interrupted)
-            destroy_env[:config_validate] = false
-            destroy_env[:force_confirm_destroy] = true
-            env[:action_runner].run(Action.action_destroy, destroy_env)
-          end
-
-          def associate_elastic_ip(env,elastic_ip, domain)
-            begin
-              env[:aws_ip] = elastic_ip
-              eip = env[:aws_compute].addresses.get(elastic_ip)
-              if eip.nil?
-                terminate(env)
-                raise Errors::FogError,
-                  :message => "Elastic IP specified not found: #{elastic_ip}"
-              end
-              @logger.info("eip - #{eip.to_s}")
-              if domain == 'vpc'
-                env[:aws_compute].associate_address(env[:machine].id,nil,nil,eip.allocation_id)
-              else
-                env[:aws_compute].associate_address(env[:machine].id,elastic_ip)
-              end
-              env[:ui].info(I18n.t("vagrant_aws.elastic_ip_allocated"))
-            rescue Fog::Compute::AWS::NotFound => e
-              # Invalid elasticip doesn't have its own error so we catch and
-              # check the error message here.
-              if e.message =~ /Elastic IP/
-                terminate(env)
-                raise Errors::FogError,
-                  :message => "Elastic IP not found: #{elastic_ip}"
-              end
-              raise
+        def allocate_and_associate_elastic_ip(env,allocate_elastic_ip)
+          begin
+            allocated_eip = env[:aws_compute].allocate_address(allocate_elastic_ip)
+            associate_elastic_ip(env,allocated_eip[:body]["publicIp"])
+          rescue Fog::Compute::AWS::NotFound => e
+            # Invalid computation of elasticip doesn't have its own error so we catch and
+            # check the error message here.
+            if e.message =~ /Elastic IP/
+              terminate(env)
+              raise Errors::FogError,
+                :message => "Elastic IP not allocated with allocate_elastic_ip option: #{allocate_elastic_ip}"
             end
+            raise
           end
+        end
 
-          def allocate_and_associate_elastic_ip(env,allocate_elastic_ip)
-            begin
-              allocated_eip = env[:aws_compute].allocate_address(allocate_elastic_ip)
-              associate_elastic_ip(env,allocated_eip[:body]["publicIp"])
-            rescue Fog::Compute::AWS::NotFound => e
-              # Invalid computation of elasticip doesn't have its own error so we catch and
-              # check the error message here.
-              if e.message =~ /Elastic IP/
-                terminate(env)
-                raise Errors::FogError,
-                  :message => "Elastic IP not allocated with allocate_elastic_ip option: #{allocate_elastic_ip}"
-              end
-              raise
-            end
-          end
-
-          def control_vm_creation
-            while @instance_no > (LIMIT * @iteration) do
-              @iteration = @iteration + 1
-              @logger.info("----------------instance_no - #{@instance_no} will wait-----------------")
-              sleep 30
-            end
+        def control_vm_creation
+          while @instance_no > (LIMIT * @iteration) do
+            @iteration = @iteration + 1
+            @logger.info("----------------instance_no - #{@instance_no} will wait-----------------")
+            sleep 30
           end
         end
       end
