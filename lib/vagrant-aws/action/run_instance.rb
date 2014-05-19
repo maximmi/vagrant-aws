@@ -263,6 +263,7 @@ module VagrantPlugins
           # cancel the spot request but let the server go thru
           env[:aws_compute].cancel_spot_instance_requests(spot_request_id)
           # tries to return a server
+          @logger.debug("Spot request instance id #{spot_req["instanceId"]}")
           spot_req["instanceId"] ? env[:aws_compute].servers.get(spot_req["instanceId"]) : nil
         end
 
