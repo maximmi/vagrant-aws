@@ -137,14 +137,13 @@ module VagrantPlugins
                 :error => e.message,
                 :response => e.response.body
             end
-
-            if server
-              # Immediately save the ID since it is created at this point.
-              env[:machine].id = server.id
-              # Wait for the instance to be ready first
-              wait_server_ready(env, region_config, server)
-            end
-            @app.call(env)
+          end
+          if server
+            # Immediately save the ID since it is created at this point.
+            env[:machine].id = server.id
+            # Wait for the instance to be ready first
+            wait_server_ready(env, region_config, server)
+             @app.call(env)
           end
         end
 
