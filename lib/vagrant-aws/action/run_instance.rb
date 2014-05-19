@@ -142,57 +142,56 @@ module VagrantPlugins
             # Immediately save the ID since it is created at this point.
             env[:machine].id = server.id
             # Wait for the instance to be ready first
-            env[:metrics]["instance_ready_time"] = Util::Timer.time do
-              tries = config.instance_ready_timeout / 2
-              env[:ui].info(I18n.t("vagrant_aws.waiting_for_ready"))
-              begin
-                retryable(:on => Fog::Errors::TimeoutError, :tries => tries) do
-                  # If we're interrupted don't worry about waiting
-                  next if env[:interrupted]
-                  # Wait for the server to be ready
-                  server.wait_for(2) { ready? }
-                end
-              rescue Fog::Errors::TimeoutError
-                # Delete the instance
-                terminate(env)
-                # Notify the user
-                raise Errors::InstanceReadyTimeout, timeout: config.instance_ready_timeout
-              end
-            end
-            @logger.info("Time to instance ready: #{env[:metrics]["instance_ready_time"]}")
-
-            # Allocate and associate an elastic IP if requested
-            #if elastic_ip
-            #  domain = subnet_id ? 'vpc' : 'standard'
-            #  do_elastic_ip(env, domain, server)
-            #end
-            if elastic_ip
-              domain = subnet_id ? 'vpc' : 'standard'
-              associate_elastic_ip(env,elastic_ip, domain)
-            elsif allocate_elastic_ip
-              allocate_and_associate_elastic_ip(env,allocate_elastic_ip)
-            end
-
-            if !env[:interrupted]
-              env[:metrics]["instance_ssh_time"] = Util::Timer.time do
-                # Wait for SSH to be ready.
-                env[:ui].info(I18n.t("vagrant_aws.waiting_for_ssh"))
-                while true
-                  # If we're interrupted then just back out
-                  break if env[:interrupted]
-                  break if env[:machine].communicate.ready?
-                  sleep 2
-                end
-              end
-              @logger.info("Time for SSH ready: #{env[:metrics]["instance_ssh_time"]}")
-              # Ready and booted!
-              env[:ui].info(I18n.t("vagrant_aws.ready"))
-            end
-
-            # Terminate the instance if we were interrupted
-            terminate(env) if env[:interrupted]
+            wait_server_ready(env, region_config, server)
             @app.call(env)
           end
+        end
+
+        def wait_server_ready(env, config, server)
+          env[:metrics]["instance_ready_time"] = Util::Timer.time do
+            tries = config.instance_ready_timeout / 2
+            env[:ui].info(I18n.t("vagrant_aws.waiting_for_ready"))
+            begin
+              retryable(:on => Fog::Errors::TimeoutError, :tries => tries) do
+                # If we're interrupted don't worry about waiting
+                next if env[:interrupted]
+                # Wait for the server to be ready
+                server.wait_for(2) { ready? }
+              end
+            rescue Fog::Errors::TimeoutError
+              # Delete the instance
+              terminate(env)
+              # Notify the user
+              raise Errors::InstanceReadyTimeout, timeout: config.instance_ready_timeout
+            end
+          end
+          @logger.info("Time to instance ready: #{env[:metrics]["instance_ready_time"]}")
+
+          if config.elastic_ip
+            domain = config.subnet_id ? 'vpc' : 'standard'
+            associate_elastic_ip(env,config.elastic_ip, domain)
+          elsif config.allocate_elastic_ip
+            allocate_and_associate_elastic_ip(env,config.allocate_elastic_ip)
+          end
+
+          if !env[:interrupted]
+            env[:metrics]["instance_ssh_time"] = Util::Timer.time do
+              # Wait for SSH to be ready.
+              env[:ui].info(I18n.t("vagrant_aws.waiting_for_ssh"))
+              while true
+                # If we're interrupted then just back out
+                break if env[:interrupted]
+                break if env[:machine].communicate.ready?
+                sleep 2
+              end
+            end
+            @logger.info("Time for SSH ready: #{env[:metrics]["instance_ssh_time"]}")
+            # Ready and booted!
+            env[:ui].info(I18n.t("vagrant_aws.ready"))
+          end
+
+          # Terminate the instance if we were interrupted
+          terminate(env) if env[:interrupted]
         end
 
         # returns a fog server or nil
