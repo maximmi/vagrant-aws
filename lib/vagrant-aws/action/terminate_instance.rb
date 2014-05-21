@@ -20,7 +20,7 @@ module VagrantPlugins
             env[:ui].info(I18n.t("vagrant_aws.elastic_ip_deallocated"))
           end
 
-          spot_request_id = machine.data_dir.join("spot_request_id").read.chomp
+          spot_request_id = env[:machine].data_dir.join("spot_request_id").read.chomp
           if spot_request_id
             # cancel the spot request but let the server go thru
             env[:aws_compute].cancel_spot_instance_requests(spot_request_id)

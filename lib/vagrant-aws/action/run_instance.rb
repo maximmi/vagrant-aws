@@ -254,7 +254,7 @@ module VagrantPlugins
               @logger.debug("Unknown spot state #{spot_state} #{status_code}, waiting")
             end
           end
-          spot_request_id_file = machine.data_dir.join("spot_request_id")
+          spot_request_id_file = env[:machine].data_dir.join("spot_request_id")
           if spot_request_id_file
             # Write the "spot request id" file with the id given.
               spot_request_id_file.open("w+") do |f|
