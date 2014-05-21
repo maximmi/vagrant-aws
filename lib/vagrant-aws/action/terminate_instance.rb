@@ -20,10 +20,18 @@ module VagrantPlugins
             env[:ui].info(I18n.t("vagrant_aws.elastic_ip_deallocated"))
           end
 
+          spot_request_id = machine.data_dir.join("spot_request_id").read.chomp
+          if spot_request_id
+            # cancel the spot request but let the server go thru
+            env[:aws_compute].cancel_spot_instance_requests(spot_request_id)
+
+          end
+
           # Destroy the server and remove the tracking ID
           env[:ui].info(I18n.t("vagrant_aws.terminating"))
           server.destroy
           env[:machine].id = nil
+
 
           @app.call(env)
         end

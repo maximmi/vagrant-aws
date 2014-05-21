@@ -254,8 +254,13 @@ module VagrantPlugins
               @logger.debug("Unknown spot state #{spot_state} #{status_code}, waiting")
             end
           end
-          # cancel the spot request but let the server go thru
-          env[:aws_compute].cancel_spot_instance_requests(spot_request_id)
+          spot_request_id_file = machine.data_dir.join("spot_request_id")
+          if spot_request_id_file
+            # Write the "spot request id" file with the id given.
+              spot_request_id_file.open("w+") do |f|
+                f.write(spot_request_id)
+            end
+          end
           # tries to return a server
           @logger.debug("Spot request instance id #{spot_req["instanceId"]}")
           spot_req["instanceId"] ? env[:aws_compute].servers.get(spot_req["instanceId"]) : nil
