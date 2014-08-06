@@ -207,6 +207,7 @@ module VagrantPlugins
             'LaunchSpecification.SubnetId'                   => config.subnet_id,
             'ValidUntil'                                     => config.spot_valid_until
           }
+          options['LaunchSpecification.NetworkInterface.1.PrivateIpAddress'] = config.private_ip_address if !config.private_ip_address.nil?
           security_group_key = config.subnet_id.nil? ? 'LaunchSpecification.SecurityGroup' : 'LaunchSpecification.SecurityGroupId'
           options[security_group_key] = config.security_groups
           options.delete_if { |key, value| value.nil? }
