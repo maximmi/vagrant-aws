@@ -204,10 +204,18 @@ module VagrantPlugins
             'LaunchSpecification.Placement.AvailabilityZone' => config.availability_zone,
             # 'LaunchSpecification.EbsOptimized'               => config.ebs_optimized,
             'LaunchSpecification.UserData'                   => config.user_data,
-            'LaunchSpecification.SubnetId'                   => config.subnet_id,
             'ValidUntil'                                     => config.spot_valid_until
           }
-          options['LaunchSpecification.NetworkInterface.1.PrivateIpAddress'] = config.private_ip_address if !config.private_ip_address.nil?
+          if config.private_ip_address.nil?
+            options['LaunchSpecification.SubnetId'] = config.subnet_id
+          else
+            options['LaunchSpecification.NetworkInterface.1.DeviceIndex'] = 0
+            options['LaunchSpecification.NetworkInterface.1.SubnetId'] = config.subnet_id
+            options['LaunchSpecification.NetworkInterface.1.Description'] = 'test'
+            options['LaunchSpecification.NetworkInterface.1.PrivateIpAddress'] = config.private_ip_address
+            options['LaunchSpecification.NetworkInterface.1.DeleteOnTermination'] = true
+          end
+
           security_group_key = config.subnet_id.nil? ? 'LaunchSpecification.SecurityGroup' : 'LaunchSpecification.SecurityGroupId'
           options[security_group_key] = config.security_groups
           options.delete_if { |key, value| value.nil? }
