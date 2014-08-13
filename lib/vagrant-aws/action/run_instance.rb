@@ -272,7 +272,13 @@ module VagrantPlugins
           end
           # tries to return a server
           @logger.debug("Spot request instance id #{spot_req["instanceId"]}")
-          spot_req["instanceId"] ? env[:aws_compute].servers.get(spot_req["instanceId"]) : nil
+          if spot_req["instanceId"]
+            server = env[:aws_compute].servers.get(spot_req["instanceId"])
+            config.tags.each do |key, value|
+              env[:aws_compute].tags.create( :key => key, :resource_id  => server.id, :value => value)
+            end
+          end
+          spot_req["instanceId"] ? server : nil
         end
 
         def recover(env)
