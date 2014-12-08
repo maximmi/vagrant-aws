@@ -216,6 +216,17 @@ module VagrantPlugins
             options['LaunchSpecification.NetworkInterface.1.DeleteOnTermination'] = true
           end
 
+          unless config.block_device_mapping.nil?
+            i = 1
+            config.block_device_mapping.each do |device|
+              device.each do |name, value| 
+                options["LaunchSpecification.BlockDeviceMapping.#{i}.#{name}"] = value
+              end
+            i+=1
+            end
+          end
+ 
+
           security_group_key = config.subnet_id.nil? ? 'LaunchSpecification.SecurityGroup' : 'LaunchSpecification.SecurityGroupId'
           options[security_group_key] = config.security_groups
           options.delete_if { |key, value| value.nil? }
