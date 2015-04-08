@@ -189,6 +189,9 @@ module VagrantPlugins
             # Ready and booted!
             env[:ui].info(I18n.t("vagrant_aws.ready"))
           end
+          
+          @logger.info("Save timeout for apply user data: 60 sec")
+          sleep 60
 
           # Terminate the instance if we were interrupted
           terminate(env) if env[:interrupted]
